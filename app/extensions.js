@@ -38,7 +38,7 @@ let generateBraveManifest = () => {
     manifest_version: 2,
     version: '1.0',
     background: {
-      scripts: [ 'content/scripts/requestHandler.js', 'content/scripts/idleHandler.js' ],
+      scripts: [ 'content/scripts/metaScraper.js', 'content/scripts/requestHandler.js', 'content/scripts/idleHandler.js' ],
       persistent: true
     },
     content_scripts: [
