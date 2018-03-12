@@ -5,7 +5,7 @@
 const ipc = chrome.ipcRenderer
 
 ipc.send('got-background-page-webcontents')
-const parser = new DOMParser()
+const domParser = new DOMParser()
 
 ipc.on('fetch-publisher-info', (e, url, options) => {
   let finalUrl = url
@@ -13,451 +13,445 @@ ipc.on('fetch-publisher-info', (e, url, options) => {
     finalUrl = response.url
     return response.text()
   }).then((text) => {
-    const html = parser.parseFromString(text, 'text/html')
-    getMetaData(html, url, finalUrl)
+    const html = domParser.parseFromString(text, 'text/html')
+    requestHandlerApi.getMetaData(html, url, finalUrl)
   }).catch((err) => {
-    console.log('fetch error', err)
-    ipc.send('got-publisher-info-' + url, {
+    requestHandlerApi.onError(err, url, finalUrl)
+  })
+})
+
+const requestHandlerApi = {
+  onError: (err, url, finalUrl) => {
+    console.error('fetch error', err)
+    ipc.send(`got-publisher-info-${url}`, {
       error: err.message,
       body: {
         url: finalUrl
       }
     })
-  })
-})
+  },
 
-const getMetaData = async (htmlDom, url, finalUrl) => {
-  const result = {
-    image: await getData({ htmlDom, finalUrl, conditions: getImageRules() }),
-    title: await getData({ htmlDom, finalUrl, conditions: getTitleRules() }),
-    author: await getData({ htmlDom, finalUrl, conditions: getAuthorRules() })
-  }
+  getMetaData: async (htmlDom, url, finalUrl) => {
+    try {
+      const result = {
+        image: await requestHandlerApi.getData({ htmlDom, finalUrl, conditions: requestHandlerApi.getImageRules() }),
+        title: await requestHandlerApi.getData({ htmlDom, finalUrl, conditions: requestHandlerApi.getTitleRules() }),
+        author: await requestHandlerApi.getData({ htmlDom, finalUrl, conditions: requestHandlerApi.getAuthorRules() })
+      }
 
-  ipc.send('got-publisher-info-' + url, {
-    error: null,
-    body: {
-      url: finalUrl,
-      title: result.title || '',
-      image: result.image || '',
-      author: result.author || ''
+      ipc.send(`got-publisher-info-${url}`, {
+        error: null,
+        body: {
+          url: finalUrl,
+          title: result.title || '',
+          image: result.image || '',
+          author: result.author || ''
+        }
+      })
+    } catch (err) {
+      requestHandlerApi.onError(err, url, finalUrl)
     }
-  })
-}
+  },
 
-// https://github.com/microlinkhq/metascraper
-// Version 3.9.2
+  // https://github.com/microlinkhq/metascraper
+  // Version 3.9.2
 
-// Basic logic
-const getData = async ({htmlDom,url,conditions}) => {
-  const size = conditions.length
-  let index = -1
-  let value
+  // Basic logic
+  getData: async ({htmlDom,url,conditions}) => {
+    const size = conditions.length
+    let index = -1
+    let value
 
-  while (!value && index++ < size - 1) {
-    value = await conditions[index]({htmlDom,url})
-  }
-
-  return value
-}
-
-// Rules
-const getImageRules = () => {
-  const wrap = rule => ({htmlDom,url}) => {
-    const value = rule(htmlDom)
-    return isUrl(value) && getUrl(url, value)
-  }
-
-  return [
-    // Youtube
-    ({htmlDom,url}) => {
-      const {id,service} = getVideoId(url)
-      return service === 'youtube' && id && getThumbnailUrl(id)
-    },
-    // Regular
-    wrap(html => getContent(html.querySelector('meta[property="og:image:secure_url"]'))),
-    wrap(html => getContent(html.querySelector('meta[property="og:image:url"]'))),
-    wrap(html => getContent(html.querySelector('meta[property="og:image"]'))),
-    wrap(html => getContent(html.querySelector('meta[name="twitter:image:src"]'))),
-    wrap(html => getContent(html.querySelector('meta[name="twitter:image"]'))),
-    wrap(html => getContent(html.querySelector('meta[name="sailthru.image.thumb"]'))),
-    wrap(html => getContent(html.querySelector('meta[name="sailthru.image.full"]'))),
-    wrap(html => getContent(html.querySelector('meta[name="sailthru.image"]'))),
-    wrap(html => getValue(html.querySelectorAll('article img[src]'), getSrc)),
-    wrap(html => getValue(html.querySelectorAll('#content img[src]'), getSrc)),
-    wrap(html => getSrc(html.querySelector('img[alt*="author"]'))),
-    wrap(html => getSrc(html.querySelector('img[src]')))
-  ]
-}
-
-const getTitleRules = () => {
-  const wrap = rule => ({htmlDom}) => {
-    const value = rule(htmlDom)
-    return isString(value) && titleize(value)
-  }
-
-  return [
-    // Regular
-    wrap(html => getContent(html.querySelector('meta[property="og:title"]'))),
-    wrap(html => getContent(html.querySelector('meta[name="twitter:title"]'))),
-    wrap(html => getContent(html.querySelector('meta[name="sailthru.title"]'))),
-    wrap(html => getText(html.querySelector('.post-title'))),
-    wrap(html => getText(html.querySelector('.entry-title'))),
-    wrap(html => getText(html.querySelector('[itemtype="http://schema.org/BlogPosting"] [itemprop="name"]'))),
-    wrap(html => getText(html.querySelector('h1[class*="title"] a'))),
-    wrap(html => getText(html.querySelector('h1[class*="title"]'))),
-    wrap(html => getText(html.querySelector('title')))
-  ]
-}
-
-const getAuthorRules = () => {
-  const wrap = rule => ({htmlDom}) => {
-    const value = rule(htmlDom)
-
-    return isString(value) &&
-      !isUrl(value, {relative: false}) &&
-      titleize(value, {removeBy: true})
-  }
-
-  return [
-    // Youtube
-    wrap(html => getText(html.querySelector('#owner-name'))),
-    wrap(html => getText(html.querySelector('#channel-title'))),
-    wrap(html => getValue(html.querySelectorAll('[class*="user-info"]'))),
-    // Regular
-    wrap(html => getContent(html.querySelector('meta[property="author"]'))),
-    wrap(html => getContent(html.querySelector('meta[property="article:author"]'))),
-    wrap(html => getContent(html.querySelector('meta[name="author"]'))),
-    wrap(html => getContent(html.querySelector('meta[name="sailthru.author"]'))),
-    wrap(html => getValue(html.querySelectorAll('[rel="author"]'))),
-    wrap(html => getValue(html.querySelectorAll('[itemprop*="author"] [itemprop="name"]'))),
-    wrap(html => getValue(html.querySelectorAll('[itemprop*="author"]'))),
-    wrap(html => getContent(html.querySelector('meta[property="book:author"]'))),
-    strict(wrap(html => getValue(html.querySelectorAll('a[class*="author"]')))),
-    strict(wrap(html => getValue(html.querySelectorAll('[class*="author"] a')))),
-    strict(wrap(html => getValue(html.querySelectorAll('a[href*="/author/"]')))),
-    wrap(html => getValue(html.querySelectorAll('a[class*="screenname"]'))),
-    strict(wrap(html => getValue(html.querySelectorAll('[class*="author"]')))),
-    strict(wrap(html => getValue(html.querySelectorAll('[class*="byline"]'))))
-  ]
-}
-
-// Helpers
-const getText = (node) => {
-  if (!node) {
-    return ''
-  }
-
-  const html = (node.outerHTML || new XMLSerializer().serializeToString(node)) || ''
-
-  return html.replace(/([\s\n]*<[^>]*>[\s\n]*)+/g, ' ')
-}
-
-const urlCheck = (url) => {
-  try {
-    new URL(url)
-    return true
-  } catch (e) {
-    return false
-  }
-}
-
-const getContent = (selector) => {
-  if (!selector) {
-    return null
-  }
-
-  return selector.content
-}
-
-const getSrc = (selector) => {
-  if (!selector) {
-    return null
-  }
-
-  return selector.src
-}
-
-const urlTest = (url, opts) => {
-  let relative
-  if (opts == null) {
-    relative = true
-  } else {
-    relative = opts.relative == null ? true : opts.relative
-  }
-
-  return relative
-    ? isAbsoluteUrl(url) === false || urlCheck(url)
-    : urlCheck(url)
-}
-
-const isEmpty = (value) => value == null || value.length === 0
-const isUrl = (url, opts = {}) => !isEmpty(url) && urlTest(url, opts)
-const getUrl = (baseUrl, relativePath = '') => {
-  return isAbsoluteUrl(relativePath) === false
-    ? resolveUrl(baseUrl, relativePath)
-    : relativePath
-}
-
-const REGEX_STRICT = /^\S+\s+\S+/
-const strict = value => {
-  return REGEX_STRICT.test(value) && value
-}
-
-const titleize = (src, {removeBy = false} = {}) => {
-  if (!src) {
-    return ''
-  }
-
-  let title = createTitle(src)
-  if (removeBy) title = removeByPrefix(title).trim()
-  return title
-}
-
-const defaultFn = (el) => {
-  if (!el) {
-    return ''
-  }
-
-  const text = getText(el) || ''
-  return text.trim()
-}
-
-const getValue = (collection, fn = defaultFn) => {
-  if (!collection || !fn) {
-    return null
-  }
-
-  if (!NodeList.prototype.isPrototypeOf(collection)) {
-    return fn(collection)
-  }
-
-  for (const ele of collection) {
-    const value = fn(ele)
-    if (value) {
-      return value
+    while (!value && index++ < size - 1) {
+      value = await conditions[index]({htmlDom,url})
     }
-  }
 
-  return null
-}
+    return value
+  },
 
-const getThumbnailUrl = id => {
-  if (id == null) {
-    return null
-  }
-
-  return `https://img.youtube.com/vi/${id}/sddefault.jpg`
-}
-
-const getVideoId = (str) => {
-  let metadata = {}
-
-  if (typeof str !== 'string') {
-		return metadata
-	}
-
-	// remove surrounding whitespaces or linefeeds
-	str = str.trim()
-
-	// remove the '-nocookie' flag from youtube urls
-	str = str.replace('-nocookie', '')
-
-	// remove any leading `www.`
-	str = str.replace('/www.', '/')
-
-  if (/youtube|youtu\.be|i.ytimg\./.test(str)) {
-    metadata = {
-      id: getYouTubeId(str),
-      service: 'youtube'
+  // Rules
+  getImageRules: () => {
+    const wrap = rule => ({htmlDom,url}) => {
+      const value = rule(htmlDom)
+      return requestHandlerApi.isUrl(value) && requestHandlerApi.getUrl(url, value)
     }
-  }
 
-  return metadata
-}
+    return [
+      // Youtube
+      ({htmlDom,url}) => {
+        const {id,service} = requestHandlerApi.getVideoId(url)
+        return service === 'youtube' && id && requestHandlerApi.getThumbnailUrl(id)
+      },
+      // Regular
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[property="og:image:secure_url"]'))),
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[property="og:image:url"]'))),
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[property="og:image"]'))),
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[name="twitter:image:src"]'))),
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[name="twitter:image"]'))),
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[name="sailthru.image.thumb"]'))),
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[name="sailthru.image.full"]'))),
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[name="sailthru.image"]'))),
+      wrap(html => requestHandlerApi.getValue(html.querySelectorAll('article img[src]'), requestHandlerApi.getSrc)),
+      wrap(html => requestHandlerApi.getValue(html.querySelectorAll('#content img[src]'), requestHandlerApi.getSrc)),
+      wrap(html => requestHandlerApi.getSrc(html.querySelector('img[alt*="author"]'))),
+      wrap(html => requestHandlerApi.getSrc(html.querySelector('img[src]')))
+    ]
+  },
 
-// https://github.com/radiovisual/get-video-id
-const getYouTubeId = (str) => {
-  if (str == null) {
-    return ''
-  }
+  getTitleRules: () => {
+    const wrap = rule => ({htmlDom}) => {
+      const value = rule(htmlDom)
+      return requestHandlerApi.isString(value) && requestHandlerApi.titleize(value)
+    }
 
-  // short code
-  const shortCode = /youtube:\/\/|https?:\/\/youtu\.be\//g
-  if (shortCode.test(str)) {
-    const shortCodeId = str.split(shortCode)[1]
-    return stripParameters(shortCodeId)
-  }
+    return [
+      // Regular
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[property="og:title"]'))),
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[name="twitter:title"]'))),
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[name="sailthru.title"]'))),
+      wrap(html => requestHandlerApi.getText(html.querySelector('.post-title'))),
+      wrap(html => requestHandlerApi.getText(html.querySelector('.entry-title'))),
+      wrap(html => requestHandlerApi.getText(html.querySelector('[itemtype="http://schema.org/BlogPosting"] [itemprop="name"]'))),
+      wrap(html => requestHandlerApi.getText(html.querySelector('h1[class*="title"] a'))),
+      wrap(html => requestHandlerApi.getText(html.querySelector('h1[class*="title"]'))),
+      wrap(html => requestHandlerApi.getText(html.querySelector('title')))
+    ]
+  },
 
-  // /v/ or /vi/
-  const inlineV = /\/v\/|\/vi\//g
-  if (inlineV.test(str)) {
-    const inlineId = str.split(inlineV)[1]
-    return stripParameters(inlineId)
-  }
+  getAuthorRules: () => {
+    const wrap = rule => ({htmlDom}) => {
+      const value = rule(htmlDom)
 
-  // v= or vi=
-  const parameterV = /v=|vi=/g
-  if (parameterV.test(str)) {
-    const arr = str.split(parameterV)
-    return arr[1].split('&')[0]
-  }
+      return requestHandlerApi.isString(value) &&
+        !requestHandlerApi.isUrl(value, {relative: false}) &&
+        requestHandlerApi.titleize(value, {removeBy: true})
+    }
 
-  // v= or vi=
-  const parameterWebP = /\/an_webp\//g
-  if (parameterWebP.test(str)) {
-    const webP = str.split(parameterWebP)[1]
-    return stripParameters(webP)
-  }
+    return [
+      // Youtube
+      wrap(html => requestHandlerApi.getText(html.querySelector('#owner-name'))),
+      wrap(html => requestHandlerApi.getText(html.querySelector('#channel-title'))),
+      wrap(html => requestHandlerApi.getValue(html.querySelectorAll('[class*="user-info"]'))),
+      // Regular
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[property="author"]'))),
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[property="article:author"]'))),
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[name="author"]'))),
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[name="sailthru.author"]'))),
+      wrap(html => requestHandlerApi.getValue(html.querySelectorAll('[rel="author"]'))),
+      wrap(html => requestHandlerApi.getValue(html.querySelectorAll('[itemprop*="author"] [itemprop="name"]'))),
+      wrap(html => requestHandlerApi.getValue(html.querySelectorAll('[itemprop*="author"]'))),
+      wrap(html => requestHandlerApi.getContent(html.querySelector('meta[property="book:author"]'))),
+      requestHandlerApi.strict(wrap(html => requestHandlerApi.getValue(html.querySelectorAll('a[class*="author"]')))),
+      requestHandlerApi.strict(wrap(html => requestHandlerApi.getValue(html.querySelectorAll('[class*="author"] a')))),
+      requestHandlerApi.strict(wrap(html => requestHandlerApi.getValue(html.querySelectorAll('a[href*="/author/"]')))),
+      wrap(html => requestHandlerApi.getValue(html.querySelectorAll('a[class*="screenname"]'))),
+      requestHandlerApi.strict(wrap(html => requestHandlerApi.getValue(html.querySelectorAll('[class*="author"]')))),
+      requestHandlerApi.strict(wrap(html => requestHandlerApi.getValue(html.querySelectorAll('[class*="byline"]'))))
+    ]
+  },
 
-  // embed
-  const embedReg = /\/embed\//g
-  if (embedReg.test(str)) {
-    const embedId = str.split(embedReg)[1]
-    return stripParameters(embedId)
-  }
+  // Helpers
+  getText: (node) => {
+    if (!node) {
+      return ''
+    }
 
-  // user
-  const userReg = /\/user\//g
-  if (userReg.test(str)) {
-    const elements = str.split('/')
-    return stripParameters(elements.pop())
-  }
+    const html = (node.outerHTML || new XMLSerializer().serializeToString(node)) || ''
+    return html.replace(/([\s\n]*<[^>]*>[\s\n]*)+/g, ' ')
+  },
 
-  // attribution_link
-  const attrReg = /\/attribution_link\?.*v%3D([^%&]*)(%26|&|$)/
-  if (attrReg.test(str)) {
-    return str.match(attrReg)[1]
-  }
-}
+  urlCheck: (url) => {
+    try {
+      new URL(url)
+      return true
+    } catch (e) {
+      return false
+    }
+  },
 
-const stripParameters = (str) => {
-  if (str == null) {
-    return ''
-  }
+  getContent: (selector) => {
+    if (!selector) {
+      return null
+    }
 
-  // Split parameters
-  if (str.includes('?')) {
-    return str.split('?')[0]
-  }
+    return selector.content
+  },
 
-  // Split folder separator
-  if (str.includes('/')) {
-    return str.split('/')[0]
-  }
+  getSrc: (selector) => {
+    if (!selector) {
+      return null
+    }
 
-  return str
-}
+    return selector.src
+  },
 
-// https://github.com/kellym/smartquotesjs
-const replacements = [
-  // triple prime
-  [/'''/g, retainLength => '\u2034' + (retainLength ? '\u2063\u2063' : '')],
-  // beginning "
-  [/(\W|^)"(\w)/g, '$1\u201c$2'],
-  // ending "
-  [/(\u201c[^"]*)"([^"]*$|[^\u201c"]*\u201c)/g, '$1\u201d$2'],
-  // remaining " at end of word
-  [/([^0-9])"/g, '$1\u201d'],
-  // double prime as two single quotes
-  [/''/g, retainLength => '\u2033' + (retainLength ? '\u2063' : '')],
-  // beginning '
-  [/(\W|^)'(\S)/g, '$1\u2018$2'],
-  // conjunction's possession
-  [/([a-z])'([a-z])/ig, '$1\u2019$2'],
-  // abbrev. years like '93
-  [/(\u2018)([0-9]{2}[^\u2019]*)(\u2018([^0-9]|$)|$|\u2019[a-z])/ig, '\u2019$2$3'],
-  // ending '
-  [/((\u2018[^']*)|[a-z])'([^0-9]|$)/ig, '$1\u2019$3'],
-  // backwards apostrophe
-  [/(\B|^)\u2018(?=([^\u2018\u2019]*\u2019\b)*([^\u2018\u2019]*\B\W[\u2018\u2019]\b|[^\u2018\u2019]*$))/ig, '$1\u2019'],
-  // double prime
-  [/"/g, '\u2033'],
-  // prime
-  [/'/g, '\u2032']
-]
+  urlTest: (url, opts) => {
+    let relative
+    if (opts == null) {
+      relative = true
+    } else {
+      relative = opts.relative == null ? true : opts.relative
+    }
 
-const smartQuotes = (str) => {
-  if (!replacements || !str) {
-    return ''
-  }
+    return relative
+      ? requestHandlerApi.isAbsoluteUrl(url) === false || requestHandlerApi.urlCheck(url)
+      : requestHandlerApi.urlCheck(url)
+  },
 
-  replacements.forEach(replace => {
-    const replacement = typeof replace[1] === 'function' ? replace[1]({}) : replace[1]
-    str = str.replace(replace[0], replacement)
-  })
-  return str
-}
+  isEmpty: (value) => {
+    return value == null || value.length === 0
+  },
 
-const REGEX_BY = /^[\s\n]*by|@[\s\n]*/i
-const removeByPrefix = (str = '') => {
-  if (str == null) {
-    return ''
-  }
+  isUrl: (url, opts = {}) => {
+    return !requestHandlerApi.isEmpty(url) && requestHandlerApi.urlTest(url, opts)
+  },
 
-  return str.replace(REGEX_BY, '').trim()
-}
+  getUrl: (baseUrl, relativePath = '') => {
+    return requestHandlerApi.isAbsoluteUrl(relativePath) === false
+      ? requestHandlerApi.resolveUrl(baseUrl, relativePath)
+      : relativePath
+  },
 
-const createTitle = (str = '') => {
-  if (str == null) {
-    return ''
-  }
+  getRestrictedString: () => {
+    return /^\S+\s+\S+/
+  },
 
-  str = str.trim().replace(/\s{2,}/g, ' ')
-  return smartQuotes(str)
-}
+  strict: value => {
+    return requestHandlerApi.getRestrictedString().test(value) && value
+  },
 
-// https://github.com/sindresorhus/is-absolute-url
-const isAbsoluteUrl = (url) => {
-  if (!isString(url)) {
-    return
-  }
+  titleize: (src, {removeBy = false} = {}) => {
+    if (!src) {
+      return ''
+    }
 
-  return /^[a-z][a-z0-9+.-]*:/.test(url)
-}
+    let title = requestHandlerApi.createTitle(src)
+    if (removeBy) title = requestHandlerApi.removeByPrefix(title).trim()
+    return title
+  },
 
-const resolveUrl = (baseUrl, relativePath) => {
-  let url = baseUrl
+  defaultFn: (el) => {
+    if (!el) {
+      return ''
+    }
 
-  if (!relativePath) {
+    const text = requestHandlerApi.getText(el) || ''
+    return text.trim()
+  },
+
+  getValue: (collection, fn = requestHandlerApi.defaultFn) => {
+    if (!collection || !fn) {
+      return null
+    }
+
+    if (!NodeList.prototype.isPrototypeOf(collection)) {
+      return fn(collection)
+    }
+
+    for (const ele of collection) {
+      const value = fn(ele)
+      if (value) {
+        return value
+      }
+    }
+
+    return null
+  },
+
+  getThumbnailUrl: (id) => {
+    if (id == null) {
+      return null
+    }
+
+    return `https://img.youtube.com/vi/${id}/sddefault.jpg`
+  },
+
+  getVideoId: (str) => {
+    let metadata = {}
+
+    if (typeof str !== 'string') {
+      return metadata
+    }
+
+    // remove surrounding white spaces or line feeds
+    str = str.trim()
+
+    // remove the '-nocookie' flag from youtube urls
+    str = str.replace('-nocookie', '')
+
+    // remove any leading `www.`
+    str = str.replace('/www.', '/')
+
+    if (/youtube|youtu\.be|i.ytimg\./.test(str)) {
+      metadata = {
+        id: requestHandlerApi.getYouTubeId(str),
+        service: 'youtube'
+      }
+    }
+
+    return metadata
+  },
+
+  // https://github.com/radiovisual/get-video-id
+  getYouTubeId: (str) => {
+    if (str == null) {
+      return ''
+    }
+
+    // short code
+    const shortCode = /youtube:\/\/|https?:\/\/youtu\.be\//g
+    if (shortCode.test(str)) {
+      const shortCodeId = str.split(shortCode)[1]
+      return requestHandlerApi.stripParameters(shortCodeId)
+    }
+
+    // /v/ or /vi/
+    const inlineV = /\/v\/|\/vi\//g
+    if (inlineV.test(str)) {
+      const inlineId = str.split(inlineV)[1]
+      return requestHandlerApi.stripParameters(inlineId)
+    }
+
+    // v= or vi=
+    const parameterV = /v=|vi=/g
+    if (parameterV.test(str)) {
+      const arr = str.split(parameterV)
+      return arr[1].split('&')[0]
+    }
+
+    // v= or vi=
+    const parameterWebP = /\/an_webp\//g
+    if (parameterWebP.test(str)) {
+      const webP = str.split(parameterWebP)[1]
+      return requestHandlerApi.stripParameters(webP)
+    }
+
+    // embed
+    const embedReg = /\/embed\//g
+    if (embedReg.test(str)) {
+      const embedId = str.split(embedReg)[1]
+      return requestHandlerApi.stripParameters(embedId)
+    }
+
+    // user
+    const userReg = /\/user\//g
+    if (userReg.test(str)) {
+      const elements = str.split('/')
+      return requestHandlerApi.stripParameters(elements.pop())
+    }
+
+    // attribution_link
+    const attrReg = /\/attribution_link\?.*v%3D([^%&]*)(%26|&|$)/
+    if (attrReg.test(str)) {
+      return str.match(attrReg)[1]
+    }
+  },
+
+  stripParameters: (str) => {
+    if (str == null) {
+      return ''
+    }
+
+    // Split parameters
+    if (str.includes('?')) {
+      return str.split('?')[0]
+    }
+
+    // Split folder separator
+    if (str.includes('/')) {
+      return str.split('/')[0]
+    }
+
+    return str
+  },
+
+  // https://github.com/kellym/smartquotesjs
+  getReplacements: () => {
+    return [
+      // triple prime
+      [/'''/g, retainLength => '\u2034' + (retainLength ? '\u2063\u2063' : '')],
+      // beginning "
+      [/(\W|^)"(\w)/g, '$1\u201c$2'],
+      // ending "
+      [/(\u201c[^"]*)"([^"]*$|[^\u201c"]*\u201c)/g, '$1\u201d$2'],
+      // remaining " at end of word
+      [/([^0-9])"/g, '$1\u201d'],
+      // double prime as two single quotes
+      [/''/g, retainLength => '\u2033' + (retainLength ? '\u2063' : '')],
+      // beginning '
+      [/(\W|^)'(\S)/g, '$1\u2018$2'],
+      // conjunction's possession
+      [/([a-z])'([a-z])/ig, '$1\u2019$2'],
+      // abbrev. years like '93
+      [/(\u2018)([0-9]{2}[^\u2019]*)(\u2018([^0-9]|$)|$|\u2019[a-z])/ig, '\u2019$2$3'],
+      // ending '
+      [/((\u2018[^']*)|[a-z])'([^0-9]|$)/ig, '$1\u2019$3'],
+      // backwards apostrophe
+      [/(\B|^)\u2018(?=([^\u2018\u2019]*\u2019\b)*([^\u2018\u2019]*\B\W[\u2018\u2019]\b|[^\u2018\u2019]*$))/ig, '$1\u2019'],
+      // double prime
+      [/"/g, '\u2033'],
+      // prime
+      [/'/g, '\u2032']
+    ]
+  },
+
+  smartQuotes: (str) => {
+    const replacements = requestHandlerApi.getReplacements()
+    if (!replacements || !str) {
+      return ''
+    }
+
+    replacements.forEach(replace => {
+      const replacement = typeof replace[1] === 'function' ? replace[1]({}) : replace[1]
+      str = str.replace(replace[0], replacement)
+    })
+
+    return str
+  },
+
+  removeByPrefix: (str = '') => {
+    if (str == null) {
+      return ''
+    }
+
+    return str.replace(/^[\s\n]*by|@[\s\n]*/i, '').trim()
+  },
+
+  createTitle: (str = '') => {
+    if (str == null) {
+      return ''
+    }
+
+    str = str.trim().replace(/\s{2,}/g, ' ')
+    return requestHandlerApi.smartQuotes(str)
+  },
+
+  // https://github.com/sindresorhus/is-absolute-url
+  isAbsoluteUrl: (url) => {
+    if (!requestHandlerApi.isString(url)) {
+      return
+    }
+
+    return /^[a-z][a-z0-9+.-]*:/.test(url)
+  },
+
+  resolveUrl: (baseUrl, relativePath) => {
+    let url = baseUrl
+
+    if (!relativePath) {
+      return url
+    }
+
+    try {
+      url = new URL(relativePath, [baseUrl])
+    } catch (e) {}
+
     return url
+  },
+
+  isString: (str) => {
+    return typeof str === 'string'
   }
-
-  try {
-    url = new URL(relativePath, [baseUrl])
-  } catch (e) {}
-
-  return url
 }
 
-const isString = (str) => typeof str === 'string'
-
-module.exports = {
-  getMetaData,
-  getData,
-  getImageRules,
-  getTitleRules,
-  getAuthorRules,
-  getText,
-  urlCheck,
-  getContent,
-  getSrc,
-  urlTest,
-  isEmpty,
-  isUrl,
-  getUrl,
-  strict,
-  titleize,
-  defaultFn,
-  getValue,
-  getThumbnailUrl,
-  getVideoId,
-  getYouTubeId,
-  stripParameters,
-  smartQuotes,
-  REGEX_BY,
-  removeByPrefix,
-  createTitle,
-  isAbsoluteUrl,
-  resolveUrl,
-  isString
-}
+module.exports = requestHandlerApi
