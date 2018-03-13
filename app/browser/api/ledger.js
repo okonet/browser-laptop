@@ -1449,12 +1449,12 @@ const roundTripFromWindow = (params, callback) => {
  * @param {string} params.path - relative path to requested url
  * @param {object} options
  * @param {boolean} options.verboseP - tells us if we want to log the process or not
- * @param {array} options.headers - headers that are used in the request.request
+ * @param {object} options.headers - headers that are used in the request.request
  * @param {string} options.server - server url
  * @param {boolean} options.binaryP - are we receiving binary payload back
- * @param {string} options.rawP - are we receiving raw payload back
- * @param {string} options.scrapeP - are we doping scraping
- * @param {string} options.windowP - do we want to run this request in the window process
+ * @param {boolean} options.rawP - are we receiving raw payload back
+ * @param {boolean} options.scrapeP - are we doping scraping
+ * @param {boolean} options.windowP - do we want to run this request in the window process
  */
 const roundtrip = (params, options, callback) => {
   let parts = typeof params.server === 'string' ? urlParse(params.server)
