@@ -219,19 +219,19 @@ describe('requestHandler unit test', function () {
     })
   })
 
-  describe('strict', function () {
+  describe('isStrictString', function () {
     it('null case', function () {
-      const result = requestHandler.strict()
+      const result = requestHandler.isStrictString()
       assert.equal(result, false)
     })
 
     it('value is no in correct format', function () {
-      const result = requestHandler.strict('firstlast')
+      const result = requestHandler.isStrictString('firstlast')
       assert.equal(result, false)
     })
 
     it('value is in correct format', function () {
-      const result = requestHandler.strict('first last')
+      const result = requestHandler.isStrictString('first last')
       assert.equal(result, 'first last')
     })
   })

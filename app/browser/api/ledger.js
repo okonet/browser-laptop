@@ -1408,6 +1408,11 @@ const clientprep = () => {
   _internal.verboseP = ledgerClient.prototype.boolion(process.env.LEDGER_PUBLISHER_VERBOSE)
 }
 
+/**
+ * Round trip for fetching data (scrap data from html) inside window process
+ * @param {object} params - contains params from roundtrip
+ * @param {string} params.url - url of the site that we want to scrap
+ */
 const roundTripFromWindow = (params, callback) => {
   if (!callback) {
     return
@@ -1433,6 +1438,24 @@ const roundTripFromWindow = (params, callback) => {
   })
 }
 
+/**
+ * Round trip function for executing actions
+ * from the bat libraries (mostly server calls)
+ * @param {object} params - params that are directly tied to request.request
+ * @param {string} params.server - server url
+ * @param {string} params.method - HTTP method (GET, PUT, etc)
+ * @param {object} params.payload - payload that we want to send to the server
+ * @param {object} params.headers - HTTP headers
+ * @param {string} params.path - relative path to requested url
+ * @param {object} options
+ * @param {boolean} options.verboseP - tells us if we want to log the process or not
+ * @param {array} options.headers - headers that are used in the request.request
+ * @param {string} options.server - server url
+ * @param {boolean} options.binaryP - are we receiving binary payload back
+ * @param {string} options.rawP - are we receiving raw payload back
+ * @param {string} options.scrapeP - are we doping scraping
+ * @param {string} options.windowP - do we want to run this request in the window process
+ */
 const roundtrip = (params, options, callback) => {
   let parts = typeof params.server === 'string' ? urlParse(params.server)
     : typeof params.server !== 'undefined' ? params.server

@@ -128,12 +128,13 @@ const requestHandlerApi = {
       : relativePath
   },
 
-  getRestrictedString: () => {
-    return /^\S+\s+\S+/
+  strict: rule => htmlDom => {
+    const value = rule(htmlDom)
+    return requestHandlerApi.isStrictString(value)
   },
 
-  strict: value => {
-    return requestHandlerApi.getRestrictedString().test(value) && value
+  isStrictString: value => {
+    return /^\S+\s+\S+/.test(value) && value
   },
 
   titleize: (src, {removeBy = false} = {}) => {
@@ -370,4 +371,4 @@ const requestHandlerApi = {
   }
 }
 
-module.exports = requestHandlerApi
+if (module) module.exports = requestHandlerApi

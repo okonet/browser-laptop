@@ -198,7 +198,7 @@ let generateBraveManifest = () => {
     'style-src': '\'self\' \'unsafe-inline\'',
     'font-src': '\'self\' data:',
     'img-src': '* data: file://*',
-    'connect-src': 'https://www.youtube.com https://www.twitch.tv',
+    'connect-src': 'https://www.youtube.com',
     'frame-src': '\'self\' https://brave.com'
   }
 
